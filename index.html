@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartCart — Gemini Vision, Ingredient Science & QR Auto-Billing</title>
+  <meta name="description"
+    content="AI Gemini customer assistant for ingredient science, how foods are made, health suitability, and dynamic QR code checkout billing." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet" />
+  <!-- ZXing Barcode Library -->
+  <script src="zxing-library.min.js"></script>
+  <script src="zxing-browser.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <!-- ══════════════════════════════
+       MART INVENTORY MODAL
+  ══════════════════════════════ -->
+  <div id="mart-modal" class="modal-overlay hidden">
+    <div class="modal-card mart-modal-card">
+      <div class="modal-header">
+        <div>
+          <h3>🏪 Live Product Catalog & Discovered Items</h3>
+          <p class="modal-sub">Shows both in-store items + all new products discovered via Gemini Internet Lens</p>
+        </div>
+        <button class="modal-close" onclick="closeMartModal()">✕</button>
+      </div>
+      <div class="mart-filters">
+        <button class="mart-filter active" onclick="filterMart('all', this)">All Products</button>
+        <button class="mart-filter" onclick="filterMart('grocery', this)">🌾 Wheat, Grains & Food</button>
+        <button class="mart-filter" onclick="filterMart('fitness', this)">💪 Fitness & Supplements</button>
+        <button class="mart-filter" onclick="filterMart('electronics', this)">🎧 Electronics & Earbuds</button>
+        <button class="mart-filter" onclick="filterMart('snack', this)">🍎 Snacks & Drinks</button>
+      </div>
+      <div id="mart-product-list" class="mart-product-list"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════
+       ESP32 HARDWARE SETUP MODAL
+  ══════════════════════════════ -->
+  <div id="esp-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h3>⚡ ESP32 Hardware & Scale Controller</h3>
+          <p class="modal-sub">Configure ESP32 / ESP32-CAM IoT Smart Cart Controller</p>
+        </div>
+        <button class="modal-close" onclick="closeEspModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="setting-label">ESP32 Board IP Address / Hostname</label>
+        <div class="api-row">
+          <input id="espIpInput" type="text" placeholder="e.g. 192.168.4.1 or 192.168.1.105" />
+          <button onclick="saveEspConfig()" class="btn-save">Save IP</button>
+        </div>
+        <p class="setting-hint">Video stream URL: <code>http://[IP]:81/stream</code> | Weight API:
+          <code>http://[IP]/weight</code>.
+        </p>
+
+        <label class="setting-label" style="margin-top:16px">Hardware Simulation Mode</label>
+        <div class="hw-switch-row">
+          <label class="switch-container">
+            <input type="checkbox" id="hwSimulationCheck" checked onchange="toggleHwSimulation()" />
+            <span class="switch-slider"></span>
+          </label>
+          <span class="switch-label">Enable Virtual ESP32 Hardware (HX711 Load Cell scale + Anti-theft
+            verification)</span>
+        </div>
+
+        <div id="espStatusBox" class="esp-status-box">
+          <div class="esp-status-item"><span>Status:</span> <strong id="espConnStatus" class="ok">Connected (Virtual
+              ESP32 Cart)</strong></div>
+          <div class="esp-status-item"><span>MCU Core:</span> <strong>ESP32 Tensilica Dual-Core 240MHz</strong></div>
+          <div class="esp-status-item"><span>Sensors:</span> <strong>OV2640 Camera + HX711 24-bit ADC + Piezo
+              Buzzer</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════
+       SETTINGS MODAL (API KEY)
+  ══════════════════════════════ -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h3>🔑 Gemini Live Internet Vision & Health Q&A</h3>
+          <p class="modal-sub">Powers real-time Google Lens object recognition & health consultation</p>
+        </div>
+        <button class="modal-close" onclick="closeSettings()">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="setting-label">Google Gemini API Key (Free)</label>
+        <p class="setting-hint">Get a 100% free API key from <a href="https://aistudio.google.com/apikey"
+            target="_blank">aistudio.google.com/apikey</a> to enable live recognition for Wheat, Earbuds, Gadgets, Food,
+          and any product in the mart!</p>
+        <div class="api-row">
+          <input id="apiKeyInput" type="password" placeholder="AIzaSy..." />
+          <button onclick="saveApiKey()" class="btn-save">Activate Live AI</button>
+        </div>
+        <div id="apiStatus"></div>
+
+        <label class="setting-label" style="margin-top:20px">👤 Customer Health / Body Goal Profile</label>
+        <select id="dietGoal" onchange="onGoalChange()">
+          <option value="high-protein">💪 Build Muscle / High Protein Hypertrophy</option>
+          <option value="weight-loss">🔥 Weight Loss / Caloric Deficit & Fat Burn</option>
+          <option value="diabetic-care">🩸 Diabetic Friendly / Low Sugar & Low GI</option>
+          <option value="gluten-sensitive">🌾 Gluten Sensitive / Celiac Friendly</option>
+          <option value="heart-health">💚 Heart & Cardiovascular Health (Low Sodium)</option>
+          <option value="balanced">⚖️ Balanced Healthy Lifestyle</option>
+          <option value="tech-gadgets">🎧 Tech & Gadgets Enthusiast</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════
+       DYNAMIC QR CODE CHECKOUT MODAL
+  ══════════════════════════════ -->
+  <div id="success-modal" class="modal-overlay hidden">
+    <div class="modal-card qr-checkout-modal-card">
+      <div class="modal-header">
+        <div class="qr-modal-title">
+          <span class="qr-brand-icon">💳</span>
+          <div>
+            <h3>SmartCart UPI QR Payment</h3>
+            <p class="modal-sub">Scan to Pay & Skip Mart Billing Queue</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeSuccess()">✕</button>
+      </div>
+
+      <div class="qr-checkout-body">
+
+        <!-- Dynamic QR Code Display -->
+        <div class="qr-code-wrapper">
+          <div class="qr-code-box" id="qrCodeContainer">
+            <img id="dynamicQrImage" src="" alt="Dynamic UPI Payment QR Code" />
+            <div id="qrVerifiedOverlay" class="qr-verified-overlay hidden">
+              <span class="verified-check">✅</span>
+              <strong>PAID & VERIFIED</strong>
+              <small>Exit Gate #02 Unlocked</small>
+            </div>
+          </div>
+          <div class="qr-amount-pill">
+            <span>Payable Total:</span>
+            <strong id="qrGrandTotal">₹0.00</strong>
+          </div>
+          <div class="upi-apps-row">
+            <span class="upi-pill">GPay</span>
+            <span class="upi-pill">PhonePe</span>
+            <span class="upi-pill">Paytm</span>
+            <span class="upi-pill">BHIM UPI</span>
+          </div>
+        </div>
+
+        <!-- Scale & Security Status -->
+        <div class="qr-sec-badge">
+          <span>⚖️ Scale Telemetry:</span> <strong id="qrWeightVerified">0 g Verified</strong> • <span
+            style="color:var(--green)">No Theft Detected</span>
+        </div>
+
+        <!-- Itemized Receipt Box -->
+        <div id="receipt-content" class="receipt-box"></div>
+
+        <!-- Payment Actions -->
+        <div class="qr-action-buttons">
+          <button id="btnVerifyPayment" class="btn-primary full" onclick="simulatePaymentSuccess()">
+            ⚡ Verify Instant Payment & Open Exit Gate
+          </button>
+          <button class="btn-secondary full" onclick="closeSuccess()" style="margin-top:8px">
+            Start New Smart Cart Session
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════
+       HEADER / NAV
+  ══════════════════════════════ -->
+  <header class="header">
+    <div class="header-brand">
+      <span class="brand-icon">🌐</span>
+      <div>
+        <h1>SmartCart <span class="brand-ver">Lens AI</span> <span class="brand-ai">Gemini + ESP32</span></h1>
+        <p>AI Ingredient Science • How It's Made • Health Impact • Dynamic QR Auto-Billing</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-esp" onclick="openEspModal()" title="ESP32 IoT Status">
+        <span class="pulse-dot"></span> <span id="headerEspLabel">ESP32: Online</span>
+      </button>
+      <button class="btn-inventory" onclick="openMartModal()" title="View Product Catalog">
+        🏪 Products (<span id="mart-total-count">25</span>)
+      </button>
+      <button id="headerApiKeyBtn" class="btn-api-key" onclick="openSettings()" title="Configure Gemini API Key">
+        🔑 Gemini AI: <span id="apiKeyBadge">Active</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════
+       PROMINENT GEMINI API BANNER (If not set)
+  ══════════════════════════════ -->
+  <div id="apiPromptBanner" class="api-prompt-banner">
+    <div class="banner-content">
+      <span class="banner-icon">✨</span>
+      <div>
+        <strong>Enable Live Gemini 2.0 Internet Lens & Health Q&A:</strong>
+        <span>Paste your free Gemini API key to recognize <em>Wheat, Earbuds, Gadgets, Food & ANY item</em> and analyze
+          how ingredients are made!</span>
+      </div>
+    </div>
+    <div class="banner-action-row">
+      <input id="quickApiKeyInput" type="password" placeholder="Paste Gemini Key (AIzaSy...)" />
+      <button onclick="saveQuickApiKey()" class="btn-banner-save">Connect AI</button>
+      <a href="https://aistudio.google.com/apikey" target="_blank" class="btn-banner-get">Get Free Key ↗</a>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════
+       MAIN CLEAN 2-COLUMN LAYOUT
+  ══════════════════════════════ -->
+  <main class="main-layout">
+
+    <!-- LEFT COLUMN: SCANNER & HARDWARE TELEMETRY -->
+    <div class="left-col">
+
+      <!-- UNIVERSAL AI VISION SCANNER CARD -->
+      <section class="card scanner-card">
+        <div class="card-title">
+          <span>📷 Google Lens Style AI Camera</span>
+          <div class="cam-source-tabs">
+            <button class="cam-tab active" id="tabWebcam" onclick="setCameraSource('webcam')">Webcam / Mobile</button>
+            <button class="cam-tab" id="tabEsp" onclick="setCameraSource('esp32')">ESP32-CAM Wi-Fi</button>
+          </div>
+        </div>
+
+        <!-- Camera View Area -->
+        <div class="camera-wrap" id="cameraWrap">
+          <video id="camera" autoplay muted playsinline></video>
+          <img id="espCamStream" class="esp-cam-stream hidden" alt="ESP32-CAM Stream" />
+          <img id="snapshotPreview" class="snapshot-preview hidden" alt="Captured Frame" />
+          <canvas id="captureCanvas" class="hidden"></canvas>
+
+          <!-- Vision Bounding Box Overlay -->
+          <div class="scanner-overlay" id="scannerOverlay">
+            <div class="scan-frame" id="scanFrame">
+              <span class="corner tl"></span><span class="corner tr"></span>
+              <span class="corner bl"></span><span class="corner br"></span>
+              <div class="scan-line"></div>
+              <div id="detectionTag" class="detection-tag hidden">Analyzing Object...</div>
+            </div>
+          </div>
+
+          <div class="camera-idle" id="cameraIdle">
+            <span class="idle-icon">📸</span>
+            <p>Live AI Lens Ready</p>
+            <small>Point camera at ANY item (Wheat, Earbuds, Charger, Dumbbell, Food) or upload a photo</small>
+          </div>
+        </div>
+
+        <!-- Scanning Actions -->
+        <div class="scanner-actions-grid">
+          <button id="cameraBtn" class="btn-secondary" onclick="startCamera()">📷 Start Camera</button>
+          <button id="visionDetectBtn" class="btn-vision" onclick="triggerAIVisionDetection()">
+            🌐 Search with Gemini Lens
+          </button>
+          <label class="btn-upload" title="Upload an image from your computer">
+            📁 Upload Image
+            <input type="file" id="imageUploadInput" accept="image/*" onchange="handleImageUpload(event)"
+              style="display:none" />
+          </label>
+          <button id="scanBarcodeBtn" class="btn-secondary" onclick="startBarcodeScan()">
+            🔍 Barcode
+          </button>
+          <button id="stopCameraBtn" class="btn-ghost" onclick="stopCamera()">⛔ Stop</button>
+        </div>
+
+        <div id="cameraStatus" class="status-bar ok">
+          ⚡ System ready. Point camera at Wheat, Earbuds, Phone, or Food and click "Search with Gemini Lens".
+        </div>
+
+        <!-- Quick Demo Object Triggers -->
+        <div class="divider"><span>⚡ Quick Test Live Vision Detection</span></div>
+        <div class="demo-barcodes-row">
+          <button class="demo-chip" onclick="simulateVisionObject('100% Whole Wheat Flour (Atta)')">🌾 Whole Wheat
+            Atta</button>
+          <button class="demo-chip" onclick="simulateVisionObject('Whole Wheat Brown Bread')">🍞 Wheat Bread</button>
+          <button class="demo-chip" onclick="simulateVisionObject('Wireless Bluetooth Earbuds (TWS)')">🎧 Wireless
+            Earbuds</button>
+          <button class="demo-chip" onclick="simulateVisionObject('Whey Protein (1kg Chocolate)')">💪 Whey
+            Protein</button>
+          <button class="demo-chip" onclick="simulateVisionObject('Rolled Oats (500g Whole Grain)')">🌾 Rolled
+            Oats</button>
+          <button class="demo-chip" onclick="simulateVisionObject('Fresh Robusta Bananas')">🍌 Bananas</button>
+        </div>
+
+        <!-- Manual Product Search / Barcode Input -->
+        <div class="manual-scan-row">
+          <input id="manualBarcode" type="text"
+            placeholder="Or search ANY object on the internet (e.g. 'Wheat Atta', 'AirPods Pro', 'Almonds')..." />
+          <button onclick="manualSearchOrScan()" class="btn-primary">Search & Add</button>
+        </div>
+      </section>
+
+      <!-- ECE HARDWARE TELEMETRY DASHBOARD -->
+      <section class="card hardware-card">
+        <div class="card-title">
+          <span>⚡ ECE IoT Smart Cart Telemetry</span>
+          <span class="hw-chip">ESP32 + HX711 Load Cell</span>
+        </div>
+
+        <div class="telemetry-grid">
+          <div class="telemetry-box">
+            <span class="telemetry-label">⚖️ Cart Weight (HX711 Scale)</span>
+            <div class="telemetry-val" id="telemetryWeight">0 g</div>
+            <span class="telemetry-sub" id="telemetryWeightDiff">Expected: 0 g (Matched)</span>
+          </div>
+          <div class="telemetry-box">
+            <span class="telemetry-label">🛡️ Anti-Theft Status</span>
+            <div class="telemetry-val ok" id="telemetryTheftStatus">SECURE</div>
+            <span class="telemetry-sub" id="theftSub">Scale matches digital cart</span>
+          </div>
+          <div class="telemetry-box">
+            <span class="telemetry-label">📶 ESP32 Wi-Fi Telemetry</span>
+            <div class="telemetry-val" id="telemetryRssi">-46 dBm</div>
+            <span class="telemetry-sub">IP: 192.168.4.1 (SmartCart_AP)</span>
+          </div>
+        </div>
+
+        <div class="hw-controls-row">
+          <button class="btn-hw" onclick="testHardwareBuzzer()">🔔 Trigger ESP32 Buzzer</button>
+          <button class="btn-hw" onclick="simulateWeightTheft()">⚠️ Simulate Weight Theft (+350g)</button>
+          <button class="btn-hw" onclick="tareLoadCell()">⚖️ Zero-Tare Scale</button>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- RIGHT COLUMN: PRODUCT DETAILS & CART -->
+    <div class="right-col">
+
+      <!-- PRODUCT DETAILS & INGREDIENTS/SPECS CARD -->
+      <section class="card product-details-card">
+        <div class="card-title">
+          <span>🔎 Identified Product Specifications & Ingredient Science</span>
+          <span id="productCategoryTag" class="cat-pill hidden">Category</span>
+        </div>
+        <div id="productDetails">
+          <div class="empty-state">
+            <span>📦</span>
+            <p>No product scanned or detected yet</p>
+            <small>Point camera at ANY object (Wheat, Earbuds, Groceries, Gadgets) and click "Search with Gemini
+              Lens".</small>
+          </div>
+        </div>
+        <div id="product-action-row" class="product-action-row hidden">
+          <button id="addCartBtn" class="btn-primary full" onclick="addToCart()">🛒 Add to Smart Cart</button>
+          <button class="btn-ask-ing" onclick="askAboutCurrentIngredients()">🤖 Ask AI in Pop-up Chat</button>
+        </div>
+      </section>
+
+      <!-- CART & AUTO-BILL CARD -->
+      <section class="card cart-card">
+        <div class="card-title">
+          <span>🧾 Smart Cart & Zero-Queue Bill</span>
+          <span id="cart-count-badge" class="count-badge hidden">0</span>
+        </div>
+
+        <div id="cartItems">
+          <div class="empty-state">
+            <span>🛒</span>
+            <p>Smart Cart is empty</p>
+            <small>Items detected via AI Lens or Barcode are added here with live load cell weight sync</small>
+          </div>
+        </div>
+
+        <div class="bill-summary" id="billSummary" style="display:none">
+          <div class="summary-row"><span>Items Subtotal</span><span id="subtotalAmt">₹0</span></div>
+          <div class="summary-row"><span>GST Tax (18%)</span><span id="gstAmt">₹0</span></div>
+          <div class="summary-row"><span>Total Cart Weight</span><span id="billWeightTotal">0 g</span></div>
+          <div class="summary-row total-row"><span>Grand Total to Pay</span><span id="grandTotal">₹0</span></div>
+        </div>
+
+        <button id="payBtn" class="btn-pay hidden" onclick="checkout()">
+          📱 Generate UPI QR Code & Pay (<span id="payTotalLabel">₹0</span>)
+        </button>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ══════════════════════════════
+       POP-UP FLOATING AI CHATBOT WIDGET
+  ══════════════════════════════ -->
+  <div id="ai-floating-widget" class="ai-floating-widget">
+
+    <!-- FLOATING POP-UP CHAT WINDOW -->
+    <div id="chat-popup" class="chat-popup hidden">
+      <div class="chat-popup-header">
+        <div class="chat-header-info">
+          <span class="chat-avatar">🤖</span>
+          <div>
+            <h4>Gemini Health & Billing AI</h4>
+            <span class="chat-online-status"><span class="dot"></span> Online Assistant</span>
+          </div>
+        </div>
+        <div class="chat-header-btns">
+          <button class="btn-chat-min" onclick="toggleChatPopup()" title="Minimize Chat">✕</button>
+        </div>
+      </div>
+
+      <div id="chat" class="chat-body">
+        <div class="bot-msg">
+          <span class="msg-icon">🤖</span>
+          <div class="msg-bubble">
+            Hello! I'm <strong>Gemini SmartCart Assistant</strong>! 🌐
+            <br><br>
+            Ask me anything about products:
+            <br>• 🌾 <em>How is Wheat or Bread made & are ingredients healthy?</em>
+            <br>• 🧪 <em>Which ingredients are used and their health impact?</em>
+            <br>• 📱 <em>Say <strong>"Generate my bill"</strong> and I will create a <strong>Dynamic UPI QR
+                Code</strong> for instant payment!</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick AI Action Chips inside Pop-up -->
+      <div class="chat-popup-chips">
+        <button class="chip-bill"
+          onclick="quickAsk('I want to stop shopping. Generate my final bill and QR code now!')">📱 Generate QR
+          Bill</button>
+        <button onclick="quickAsk('How is Wheat Atta made and what are its active ingredients?')">🌾 Wheat
+          Science</button>
+        <button onclick="quickAsk('Which ingredients are used in Whey Protein and are they good for health?')">💪 Whey
+          Protein</button>
+        <button onclick="quickAsk('Explain how artificial preservatives like TBHQ impact health')">⚠️ Additives
+          Impact</button>
+      </div>
+
+      <div class="chat-popup-input-row">
+        <input id="chatInput" type="text" placeholder="Ask question or say 'Generate my bill'..." />
+        <button id="sendBtn" class="btn-chat-send" onclick="askAI()">➤</button>
+      </div>
+    </div>
+
+    <!-- FLOATING ACTION BUTTON (FAB) -->
+    <button id="chat-fab" class="chat-fab" onclick="toggleChatPopup()" title="Open Gemini AI Assistant">
+      <span class="fab-icon">🤖</span>
+      <span class="fab-label">Ask Gemini AI</span>
+      <span id="fab-unread" class="fab-unread-dot"></span>
+    </button>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
